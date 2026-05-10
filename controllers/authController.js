@@ -1,10 +1,10 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../database');
+const User = require('../models/User');
 
 const generateToken = (user) => {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user._id, email: user.email, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -15,12 +15,13 @@ const signup = async (req, res) => {
   if (!name || !email || !password)
     return res.status(400).json({ error: 'Name, email and password are required' });
   try {
+    const exists = await User.findOne({ email });
+    if (exists) return res.status(400).json({ error: 'Email already exists' });
     const hashedPassword = await bcrypt.hash(password, 10);
-    const insert = db.prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)');
-    const result = insert.run(name, email, hashedPassword, 'user');
-    res.status(201).json({ message: '✅ Account created successfully', userId: result.lastInsertRowid });
+    const user = await User.create({ name, email, password: hashedPassword, role: 'user' });
+    res.status(201).json({ message: '✅ Account created successfully', userId: user._id });
   } catch (err) {
-    res.status(400).json({ error: 'Email already exists' });
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
@@ -37,7 +38,7 @@ const login = async (req, res) => {
       );
       return res.json({ message: '✅ Admin login successful', role: 'admin', token });
     }
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ error: 'User not found' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ error: 'Invalid password' });
