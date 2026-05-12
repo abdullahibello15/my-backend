@@ -1,9 +1,12 @@
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 require('dotenv').config();
 const connectDB = require('./database');
+const setupChatSocket = require('./sockets/chatSocket');
 
 const app = express();
+const server = http.createServer(app);
 
 // Connect to MongoDB
 connectDB();
@@ -20,8 +23,15 @@ app.get('/', (req, res) => {
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/chat', require('./routes/chat'));
+
+const { chatEvents } = setupChatSocket(server);
+
+chatEvents.on('message:created', (message) => {
+  console.log(`💬 New ${message.senderType} message in ${message.conversationId}`);
+});
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
 });
