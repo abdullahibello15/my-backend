@@ -85,6 +85,62 @@ const createUser = async (req, res) => {
   }
 };
 
+const updateUser = async (req, res) => {
+  const allowedFields = [
+    'firstName',
+    'lastName',
+    'name',
+    'email',
+    'initialBalance',
+    'accountType',
+    'accountStatus',
+    'role'
+  ];
+
+  try {
+    const updates = {};
+
+    allowedFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
+
+    if (req.body.emailAddress !== undefined) {
+      updates.email = req.body.emailAddress;
+    }
+
+    if (req.body.password !== undefined) {
+      updates.password = await bcrypt.hash(req.body.password, 10);
+    }
+
+    if (updates.initialBalance !== undefined) {
+      updates.initialBalance = Number(updates.initialBalance) || 0;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      updates,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({
+      message: 'User updated',
+      user: formatUserForTable(user)
+    });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.code === 11000) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 const deleteUser = async (req, res) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id);
@@ -95,4 +151,4 @@ const deleteUser = async (req, res) => {
   }
 };
 
-module.exports = { getUsers, getUser, createUser, deleteUser };
+module.exports = { getUsers, getUser, createUser, updateUser, deleteUser };
