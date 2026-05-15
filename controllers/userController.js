@@ -1,37 +1,58 @@
-const bcrypt = require('bcryptjs');
-const User = require('../models/User');
+const bcrypt = require("bcryptjs");
+const mongoose = require("mongoose");
+const User = require("../models/User");
 
-const formatUserForTable = (user) => ({
-  _id: user._id,
-  id: user._id,
-  firstName: user.firstName || '',
-  lastName: user.lastName || '',
+// ✅ One place for error handling
+const handleError = (err, res) => {
+  console.error(err); // ✅ always log
+  if (err.name === "CastError")
+    return res.status(404).json({ error: "User not found" });
+  if (err.name === "ValidationError")
+    return res.status(400).json({ error: err.message });
+  if (err.code === 11000)
+    return res.status(400).json({ error: "Email already exists" });
+  res.status(500).json({ error: "Server error" });
+};
+
+// ✅ One consistent shape the frontend can rely on
+const formatUser = (user) => ({
+  _id: user._id.toString(),
+  id: user._id.toString(),
   name: user.name,
+  firstName: user.firstName || "",
+  lastName: user.lastName || "",
   email: user.email,
+  balance: user.initialBalance || 0, // ✅ consistent field name
   initialBalance: user.initialBalance || 0,
-  accountType: user.accountType || 'Standard',
-  accountStatus: user.accountStatus || 'Active',
+  accountType: user.accountType || "Standard",
+  status: user.accountStatus || "Active", // ✅ consistent field name
+  accountStatus: user.accountStatus || "Active",
   role: user.role,
   createdAt: user.createdAt,
-  updatedAt: user.updatedAt
 });
+
+// ✅ ID validation helper
+const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const getUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password').sort({ createdAt: -1 });
-    res.json(users.map(formatUserForTable));
+    const users = await User.find().select("-password").sort({ createdAt: -1 });
+    res.json(users.map(formatUser));
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    handleError(err, res);
   }
 };
 
 const getUser = async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(404).json({ error: "User not found" });
+  }
   try {
-    const user = await User.findById(req.params.id).select('-password');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(formatUserForTable(user));
+    const user = await User.findById(req.params.id).select("-password");
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(formatUser(user));
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    handleError(err, res);
   }
 };
 
@@ -41,113 +62,92 @@ const createUser = async (req, res) => {
     lastName,
     name,
     email,
-    emailAddress,
     password,
     initialBalance = 0,
-    accountType = 'Standard',
-    accountStatus = 'Active'
+    accountType = "Standard",
+    accountStatus = "Active",
   } = req.body;
 
-  const userEmail = emailAddress || email;
-  const fullName = name || [firstName, lastName].filter(Boolean).join(' ');
+  const fullName = name || [firstName, lastName].filter(Boolean).join(" ");
 
-  if ((!name && (!firstName || !lastName)) || !userEmail || !password) {
-    return res.status(400).json({
-      error: 'First name, last name, email address and password are required'
-    });
+  if (!fullName || !email || !password) {
+    return res
+      .status(400)
+      .json({ error: "Name, email and password are required" });
   }
 
   try {
-    const exists = await User.findOne({ email: userEmail });
-    if (exists) return res.status(400).json({ error: 'Email already exists' });
+    const exists = await User.findOne({ email });
+    if (exists) return res.status(400).json({ error: "Email already exists" });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
     const user = await User.create({
       firstName,
       lastName,
       name: fullName,
-      email: userEmail,
-      password: hashedPassword,
+      email,
+      password: await bcrypt.hash(password, 10),
       initialBalance: Number(initialBalance) || 0,
       accountType,
-      accountStatus
+      accountStatus,
     });
 
-    res.status(201).json({
-      message: 'User created',
-      user: formatUserForTable(user)
-    });
+    res.status(201).json({ message: "User created", user: formatUser(user) });
   } catch (err) {
-    if (err.name === 'ValidationError') {
-      return res.status(400).json({ error: err.message });
-    }
-    res.status(500).json({ error: 'Server error' });
+    handleError(err, res);
   }
 };
 
 const updateUser = async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
   const allowedFields = [
-    'firstName',
-    'lastName',
-    'name',
-    'email',
-    'initialBalance',
-    'accountType',
-    'accountStatus',
-    'role'
+    "firstName",
+    "lastName",
+    "name",
+    "email",
+    "initialBalance",
+    "accountType",
+    "accountStatus",
+    "role",
   ];
-
   try {
-    const updates = {};
+    const updates = Object.fromEntries(
+      allowedFields
+        .filter((f) => req.body[f] !== undefined)
+        .map((f) => [f, req.body[f]]),
+    );
 
-    allowedFields.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
-    });
-
-    if (req.body.emailAddress !== undefined) {
-      updates.email = req.body.emailAddress;
-    }
-
-    if (req.body.password !== undefined) {
+    if (req.body.password) {
       updates.password = await bcrypt.hash(req.body.password, 10);
     }
-
     if (updates.initialBalance !== undefined) {
       updates.initialBalance = Number(updates.initialBalance) || 0;
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      updates,
-      { new: true, runValidators: true }
-    ).select('-password');
+    const user = await User.findByIdAndUpdate(req.params.id, updates, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
 
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    res.json({
-      message: 'User updated',
-      user: formatUserForTable(user)
-    });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({ message: "User updated", user: formatUser(user) });
   } catch (err) {
-    if (err.name === 'ValidationError') {
-      return res.status(400).json({ error: err.message });
-    }
-    if (err.code === 11000) {
-      return res.status(400).json({ error: 'Email already exists' });
-    }
-    res.status(500).json({ error: 'Server error' });
+    handleError(err, res);
   }
 };
 
 const deleteUser = async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(404).json({ error: "User not found" });
+  }
   try {
     const user = await User.findByIdAndDelete(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ message: 'User deleted' });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({ message: "User deleted" });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    handleError(err, res);
   }
 };
 
