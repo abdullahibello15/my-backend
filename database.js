@@ -1,13 +1,11 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const connectDB = async () => {
-  try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log('✅ MongoDB connected');
-  } catch (err) {
-    console.error('❌ MongoDB connection error:', err.message);
-    process.exit(1);
-  }
-};
+const balanceSchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true, unique: true },
+    balance: { type: Number, default: 0 },
+  },
+  { timestamps: true },
+);
 
-module.exports = connectDB;
+module.exports = mongoose.model("Balance", balanceSchema);

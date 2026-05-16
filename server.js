@@ -24,6 +24,7 @@ app.get("/", (req, res) => {
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/chat", require("./routes/chat"));
+app.use("/api", require("./routes/balance")); // Balance routes
 
 const { chatEvents } = setupChatSocket(server);
 
