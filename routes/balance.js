@@ -1,10 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { MongoClient } = require("mongodb");
-
-const client = new MongoClient(process.env.MONGO_URI);
-const db = client.db("myDatabase");
-const balances = db.collection("balances");
+const Balance = require("../models/Balance");
 
 // ADMIN — Add to balance
 router.post("/admin/balance", async (req, res) => {
@@ -14,14 +10,17 @@ router.post("/admin/balance", async (req, res) => {
     return res.status(403).json({ error: "Unauthorized" });
   }
 
-  await balances.updateOne(
-    { userId },
-    { $inc: { balance: amount } },
-    { upsert: true },
-  );
+  try {
+    const updated = await Balance.findOneAndUpdate(
+      { userId },
+      { $inc: { balance: amount } },
+      { upsert: true, new: true },
+    );
 
-  const updated = await balances.findOne({ userId });
-  res.json({ success: true, userId, newBalance: updated.balance });
+    res.json({ success: true, userId, newBalance: updated.balance });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 // ADMIN — Set exact balance
@@ -32,23 +31,31 @@ router.put("/admin/balance", async (req, res) => {
     return res.status(403).json({ error: "Unauthorized" });
   }
 
-  await balances.updateOne(
-    { userId },
-    { $set: { balance: amount } },
-    { upsert: true },
-  );
+  try {
+    const updated = await Balance.findOneAndUpdate(
+      { userId },
+      { $set: { balance: amount } },
+      { upsert: true, new: true },
+    );
 
-  res.json({ success: true, userId, balance: amount });
+    res.json({ success: true, userId, balance: updated.balance });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 // PUBLIC — Get balance
 router.get("/balance/:userId", async (req, res) => {
   const { userId } = req.params;
-  const result = await balances.findOne({ userId });
 
-  if (!result) return res.status(404).json({ error: "User not found" });
+  try {
+    const result = await Balance.findOne({ userId });
+    if (!result) return res.status(404).json({ error: "User not found" });
 
-  res.json({ userId, balance: result.balance });
+    res.json({ userId, balance: result.balance });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 module.exports = router;
